@@ -264,132 +264,132 @@ int main(int argc, char *argv[]) {
     numChannels = 1;
     bitsPerSample = 16;
     frequency = 440.0;
-	sampleRate = 1000;
+    sampleRate = 1000;
 	
-	// Morse units calculation
-	double amplitude;
-	double unit_duration, dash_duration, space_duration, letter_space_duration, word_space_duration;
-	uint32_t unit_samples_count, dash_samples_count, space_samples_count, letter_space_samples_count, word_space_samples_count;
+    // Morse units calculation
+    double amplitude;
+    double unit_duration, dash_duration, space_duration, letter_space_duration, word_space_duration;
+    uint32_t unit_samples_count, dash_samples_count, space_samples_count, letter_space_samples_count, word_space_samples_count;
 	
-	AudioData *unit, *dash, *space, *letter_space, *word_space;
+    AudioData *unit, *dash, *space, *letter_space, *word_space;
 	
-	amplitude = pow(2, bitsPerSample - 1) - 1;
+    amplitude = pow(2, bitsPerSample - 1) - 1;
 	
-	unit_duration = UNIT_DURATION;
-	dash_duration = UNIT_DURATION * DASH_UNITS;
-	space_duration = UNIT_DURATION * SPACE_UNITS;
-	letter_space_duration = UNIT_DURATION * LETTER_SPACE_UNITS;
-	word_space_duration = UNIT_DURATION * WORD_SPACE_UNITS;
+    unit_duration = UNIT_DURATION;
+    dash_duration = UNIT_DURATION * DASH_UNITS;
+    space_duration = UNIT_DURATION * SPACE_UNITS;
+    letter_space_duration = UNIT_DURATION * LETTER_SPACE_UNITS;
+    word_space_duration = UNIT_DURATION * WORD_SPACE_UNITS;
 	
-	unit_samples_count = sampleRate * unit_duration / 2;
-	dash_samples_count = sampleRate * dash_duration / 2;
-	space_samples_count = sampleRate * space_duration / 2;
-	letter_space_samples_count = sampleRate * letter_space_duration / 2;
-	word_space_samples_count = sampleRate * word_space_duration / 2;
+    unit_samples_count = sampleRate * unit_duration / 2;
+    dash_samples_count = sampleRate * dash_duration / 2;
+    space_samples_count = sampleRate * space_duration / 2;
+    letter_space_samples_count = sampleRate * letter_space_duration / 2;
+    word_space_samples_count = sampleRate * word_space_duration / 2;
 	
-	if(alloc_audio_data(&unit, unit_samples_count) == MEMORY_ALLOC_ERR)
-	{
-		throw_memory_alloc_err(unit_samples_count * sizeof(uint16_t));
+    if(alloc_audio_data(&unit, unit_samples_count) == MEMORY_ALLOC_ERR)
+    {
+        throw_memory_alloc_err(unit_samples_count * sizeof(uint16_t));
+    }
+    if(alloc_audio_data(&dash, dash_samples_count) == MEMORY_ALLOC_ERR)
+    {
+	throw_memory_alloc_err(dash_samples_count * sizeof(uint16_t));
+    }
+    if(alloc_audio_data(&space, space_samples_count) == MEMORY_ALLOC_ERR)
+    {
+	throw_memory_alloc_err(space_samples_count * sizeof(uint16_t));
+    }
+    if(alloc_audio_data(&letter_space, letter_space_samples_count) == MEMORY_ALLOC_ERR)
+    {
+	throw_memory_alloc_err(letter_space_samples_count * sizeof(uint16_t));
+    }
+    if(alloc_audio_data(&word_space, word_space_samples_count) == MEMORY_ALLOC_ERR)
+    {
+	throw_memory_alloc_err(word_space_samples_count * sizeof(uint16_t));
+    }
+	
+    // Samples pre-calculation
+    memset(space->data, 0, space->size * sizeof(uint16_t));
+    memset(letter_space->data, 0, letter_space->size * sizeof(uint16_t));
+    memset(word_space->data, 0, word_space->size * sizeof(uint16_t));
+    for (int i = 0; i < unit->size; ++i) {
+        double t = (double)i / sampleRate;
+        unit->data[i] = amplitude * sin(2 * M_PI * frequency * t);
+    }
+    for (int i = 0; i < dash->size; ++i) {
+        double t = (double)i / sampleRate;
+        dash->data[i] = amplitude * sin(2 * M_PI * frequency * t);
+    }
+
+    memset(morse_alphabet, 0, sizeof(morse_alphabet));
+    init_morse_alphabet(morse_alphabet);
+
+    morse_alphabet_audio = (AudioData**)calloc(MORSE_ALPHABET_SIZE, sizeof(AudioData*));
+    if(morse_alphabet_audio == NULL)
+    {
+	throw_memory_alloc_err(MORSE_ALPHABET_SIZE * sizeof(AudioData*));
+    }
+
+    int alloc_bytes;
+    if((alloc_bytes = init_morse_alphabet_audio_data(morse_alphabet_audio, unit, dash, space, morse_alphabet)) != 0)
+    {
+	throw_memory_alloc_err(alloc_bytes * sizeof(uint16_t));
+    }
+
+    ascii2audio_data_table = (AudioData**)calloc(MORSE_ALPHABET_SIZE, sizeof(AudioData*));
+    if(ascii2audio_data_table == NULL)
+    {
+	throw_memory_alloc_err(MORSE_ALPHABET_SIZE * sizeof(AudioData*));
+    }
+	
+    init_ascii_to_audio_data_table(ascii2audio_data_table, morse_alphabet_audio, word_space);
+	
+    // Main loop
+    register uint32_t bytes_read, total_samples_size, i;
+    register char last_letter;
+    register AudioData *audio_ptr;
+
+    last_letter = ' ';
+    total_samples_size = 0;
+
+    fseek(out_file, 44, SEEK_SET);
+
+    // Write units of delay to begining
+    for(int j = 0;j < START_DELAY_UNITS;j++)
+    {
+	fwrite(space->data, sizeof(int16_t), space->size, out_file);
+    }
+
+    while((bytes_read = fread(chunk_buffer, 1, chunk_size, in_file)) > 0)
+    {
+        for(i = 0;i < bytes_read;i++)
+	{	
+	    audio_ptr = ascii2audio_data_table[chunk_buffer[i]];
+	    if(audio_ptr == NULL)
+		continue;
+	    if(last_letter != ' ' && chunk_buffer[i] != ' ')
+	    {
+                fwrite(letter_space->data, sizeof(int16_t), letter_space->size, out_file);
+		total_samples_size += letter_space->size;
+	    }
+	    fwrite(audio_ptr->data, sizeof(int16_t), audio_ptr->size, out_file);
+	    total_samples_size += audio_ptr->size;
+	    last_letter = chunk_buffer[i];
 	}
-	if(alloc_audio_data(&dash, dash_samples_count) == MEMORY_ALLOC_ERR)
-	{
-		throw_memory_alloc_err(dash_samples_count * sizeof(uint16_t));
-	}
-	if(alloc_audio_data(&space, space_samples_count) == MEMORY_ALLOC_ERR)
-	{
-		throw_memory_alloc_err(space_samples_count * sizeof(uint16_t));
-	}
-	if(alloc_audio_data(&letter_space, letter_space_samples_count) == MEMORY_ALLOC_ERR)
-	{
-		throw_memory_alloc_err(letter_space_samples_count * sizeof(uint16_t));
-	}
-	if(alloc_audio_data(&word_space, word_space_samples_count) == MEMORY_ALLOC_ERR)
-	{
-		throw_memory_alloc_err(word_space_samples_count * sizeof(uint16_t));
-	}
+    }
 	
-	// Samples pre-calculation
-	memset(space->data, 0, space->size * sizeof(uint16_t));
-	memset(letter_space->data, 0, letter_space->size * sizeof(uint16_t));
-	memset(word_space->data, 0, word_space->size * sizeof(uint16_t));
-	for (int i = 0; i < unit->size; ++i) {
-	    double t = (double)i / sampleRate;
-	    unit->data[i] = amplitude * sin(2 * M_PI * frequency * t);
-	}
-	for (int i = 0; i < dash->size; ++i) {
-	    double t = (double)i / sampleRate;
-	    dash->data[i] = amplitude * sin(2 * M_PI * frequency * t);
-	}
-	
-	memset(morse_alphabet, 0, sizeof(morse_alphabet));
-	init_morse_alphabet(morse_alphabet);
-	
-	morse_alphabet_audio = (AudioData**)calloc(MORSE_ALPHABET_SIZE, sizeof(AudioData*));
-	if(morse_alphabet_audio == NULL)
-	{
-		throw_memory_alloc_err(MORSE_ALPHABET_SIZE * sizeof(AudioData*));
-	}
-	
-	int alloc_bytes;
-	if((alloc_bytes = init_morse_alphabet_audio_data(morse_alphabet_audio, unit, dash, space, morse_alphabet)) != 0)
-	{
-		throw_memory_alloc_err(alloc_bytes * sizeof(uint16_t));
-	}
-	
-	ascii2audio_data_table = (AudioData**)calloc(MORSE_ALPHABET_SIZE, sizeof(AudioData*));
-	if(ascii2audio_data_table == NULL)
-	{
-		throw_memory_alloc_err(MORSE_ALPHABET_SIZE * sizeof(AudioData*));
-	}
-	
-	init_ascii_to_audio_data_table(ascii2audio_data_table, morse_alphabet_audio, word_space);
-	
-	// Main loop
-	register uint32_t bytes_read, total_samples_size, i;
-	register char last_letter;
-	register AudioData *audio_ptr;
-	
-	last_letter = ' ';
-	total_samples_size = 0;
-	
-	fseek(out_file, 44, SEEK_SET);
-	
-	// Write units of delay to begining
-	for(int j = 0;j < START_DELAY_UNITS;j++)
-	{
-		fwrite(space->data, sizeof(int16_t), space->size, out_file);
-	}
-	
-	while((bytes_read = fread(chunk_buffer, 1, chunk_size, in_file)) > 0)
-	{
-		for(i = 0;i < bytes_read;i++)
-		{	
-			audio_ptr = ascii2audio_data_table[chunk_buffer[i]];
-			if(audio_ptr == NULL)
-				continue;
-			if(last_letter != ' ' && chunk_buffer[i] != ' ')
-			{
-				fwrite(letter_space->data, sizeof(int16_t), letter_space->size, out_file);
-				total_samples_size += letter_space->size;
-			}
-			fwrite(audio_ptr->data, sizeof(int16_t), audio_ptr->size, out_file);
-			total_samples_size += audio_ptr->size;
-			last_letter = chunk_buffer[i];
-		}
-	}
-	
-	// Write n units of delay to the end
-	for(int j = 0;j < END_DELAY_UNITS;j++)
-	{
-		fwrite(space->data, sizeof(int16_t), space->size, out_file);
-	}
-	
-	total_samples_size += space->size * (START_DELAY_UNITS + END_DELAY_UNITS);
+    // Write n units of delay to the end
+    for(int j = 0;j < END_DELAY_UNITS;j++)
+    {
+	fwrite(space->data, sizeof(int16_t), space->size, out_file);
+    }
+
+    total_samples_size += space->size * (START_DELAY_UNITS + END_DELAY_UNITS);
 	
     dataSize = total_samples_size * numChannels * (bitsPerSample / 8);
-	duration = total_samples_size / sampleRate;
+    duration = total_samples_size / sampleRate;
 	
-	// Fill in the WAV header fields
+    // Fill in the WAV header fields
     struct WAVHeader header = {
         .chunkID = {'R', 'I', 'F', 'F'},
         .chunkSize = 36 + dataSize,
@@ -406,29 +406,29 @@ int main(int argc, char *argv[]) {
         .subchunk2Size = dataSize
     };
 	
-	fseek(out_file, 0, SEEK_SET);
+    fseek(out_file, 0, SEEK_SET);
 	
-	// Write the WAV header to the file
+    // Write the WAV header to the file
     fwrite(&header, sizeof(header), 1, out_file);
 
     // Close files
     fclose(out_file);
     fclose(in_file);
 	
-	// Freeing memory
-	free_audio_data(&unit);
-	free_audio_data(&dash);
-	free_audio_data(&space);
-	free_audio_data(&letter_space);
-	free_audio_data(&word_space);
-	
-	for(int i = 0;i < MORSE_ALPHABET_SIZE;i++)
-	{
-		free_audio_data(&(morse_alphabet_audio[i]));
-	}
+    // Freeing memory
+    free_audio_data(&unit);
+    free_audio_data(&dash);
+    free_audio_data(&space);
+    free_audio_data(&letter_space);
+    free_audio_data(&word_space);
 
-	free(morse_alphabet_audio);
-	free(ascii2audio_data_table);
+    for(int i = 0;i < MORSE_ALPHABET_SIZE;i++)
+    {
+	free_audio_data(&(morse_alphabet_audio[i]));
+    }
+
+    free(morse_alphabet_audio);
+    free(ascii2audio_data_table);
 
     return 0;
 }
